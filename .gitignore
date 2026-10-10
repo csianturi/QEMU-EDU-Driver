@@ -57,6 +57,7 @@ serial.log
 *.swo
 *~
 .DS_Store
+*.code-workspace
 
 # Tagging tools
 tags
