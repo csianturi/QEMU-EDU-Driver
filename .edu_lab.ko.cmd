@@ -1,1 +1,0 @@
-savedcmd_/home/fatso/projects/edu_driver/edu_lab.ko := x86_64-linux-gnu-ld -r -m elf_x86_64 -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T arch/x86/module.lds -o /home/fatso/projects/edu_driver/edu_lab.ko /home/fatso/projects/edu_driver/edu_lab.o /home/fatso/projects/edu_driver/edu_lab.mod.o /home/fatso/projects/edu_driver/.module-common.o

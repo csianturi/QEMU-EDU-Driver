@@ -1,1 +1,0 @@
-savedcmd_/home/fatso/projects/edu_driver/Module.symvers :=  scripts/mod/modpost -M -m       -o /home/fatso/projects/edu_driver/Module.symvers -n -T /home/fatso/projects/edu_driver/modules.order -i Module.symvers -e 

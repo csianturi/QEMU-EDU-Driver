@@ -1,0 +1,64 @@
+# ==============================================================================
+# C / C++ & Linux Kernel Module Build Artifacts
+# ==============================================================================
+# Object files, kernel objects, and shared libraries
+*.o
+*.ko
+*.ko.unsigned
+*.mod
+*.mod.c
+*.mod.o
+*.a
+*.so
+*.dylib
+
+# Kernel build metadata and dependency tracking
+.*.cmd
+.*.d
+*.order
+Module.symvers
+modules.order
+.tmp_versions/
+
+# Debug symbols & profiling
+*.dSYM/
+*.gcda
+*.gcno
+*.gcov
+
+# ==============================================================================
+# QEMU, Disk Images & Guest Kernels
+# ==============================================================================
+# Raw disk images, copy-on-write overlays, and root filesystems
+*.qcow2
+*.img
+*.raw
+*.iso
+rootfs/
+rootfs.ext4
+
+# Kernel images built or pulled for QEMU testing
+bzImage
+vmlinuz*
+initramfs*
+*.cpio.gz
+
+# QEMU flash / state dumps
+*.fd
+qemu.log
+serial.log
+
+# ==============================================================================
+# Editors, IDEs & OS Metadata
+# ==============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Tagging tools
+tags
+TAGS
+cscope.*
