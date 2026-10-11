@@ -19,6 +19,7 @@
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEV_ID 0x11e8
+#define EDU_REG_LIVENESS 0x04
 
 MODULE_LICENSE("GPL");
 
@@ -69,8 +70,22 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return -ENOMEM;
     }
     
-    u32 pci_id_val = ioread32(state->bar0);
-    pr_info("PCI ID Value: 0x%08x\n", pci_id_val);
+    u32 read_result = ioread32(state->bar0);
+    pr_info("EDU ID: 0x%08x\n", read_result);
+
+    u32 write_val = 0x55555555;
+    iowrite32(write_val, state->bar0 + EDU_REG_LIVENESS);
+    read_result = ioread32(state->bar0 + EDU_REG_LIVENESS);
+    pr_info("Liveness Check: 0x%08x\n", read_result);
+
+    if(read_result != ~write_val) {
+        pr_info("Liveness check failed. Expected value: 0x%08x\n", ~write_val);
+        pci_iounmap(dev, state->bar0);
+        pci_release_region(dev, 0);
+        pci_disable_device(dev);
+        kfree(state);
+        return -EIO;
+    }
 
     pci_set_drvdata(dev, state);
 
