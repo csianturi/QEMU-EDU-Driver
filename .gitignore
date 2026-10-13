@@ -63,3 +63,4 @@ serial.log
 tags
 TAGS
 cscope.*
+test_ioctl
