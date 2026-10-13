@@ -58,10 +58,24 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
             .abi_version = 1
         };
 
+        // copy_to_user returns the number of bytes not copied
         unsigned long copy_result = copy_to_user((void __user*)arg, &response, sizeof(response));
         if(copy_result != 0) return -EFAULT;
 
         return 0;
+    } else if(cmd == EDU_IOCTL_FACTORIAL) {
+        struct edu_factorial factorial = {};
+
+        // copy_from_user returns the number of bytes not copied
+        unsigned long copy_result = copy_from_user(&factorial, (void __user*)arg, sizeof(factorial));
+        if(copy_result != 0) return -EFAULT;
+
+        if (factorial.input > 12 || factorial.flags != 0 || factorial.reserved != 0) {
+            return -EINVAL;
+        }
+
+        return -EOPNOTSUPP;
+
     }
 
     return -ENOTTY;

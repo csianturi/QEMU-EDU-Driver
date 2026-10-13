@@ -11,7 +11,15 @@ struct edu_info {
     __u32 reserved;
 };
 
+struct edu_factorial {
+    __u32 input;
+    __u32 result;
+    __u32 flags;
+    __u32 reserved;
+};
+
 #define EDU_IOCTL_GET_INFO _IOR('E', 0, struct edu_info)
+#define EDU_IOCTL_FACTORIAL _IOWR('E', 1, struct edu_factorial)
 
 
 

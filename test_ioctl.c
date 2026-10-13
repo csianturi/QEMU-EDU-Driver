@@ -102,13 +102,92 @@ int main(){
         printf("reserved: %u\n", info.reserved);
     }
 
-    // cleanup
-    info = (struct edu_info) {
-        .abi_version = 99,
-        .max_factorial_input = 99,
-        .max_roundtrip_len = 99,
-        .reserved = 99
-    };
+    // -----------------------------------
+    // TEST 5: factorial with null pointer
+    // -----------------------------------
+    struct edu_factorial factorial = {};
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, NULL);
+
+    if (ioctl_result == -1 && errno == EFAULT) {
+        printf("PASS: NULL arg rejected\n");
+    } else {
+        test_passed = false;
+    }
+
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
+
+    // -----------------------------------
+    // TEST 6: factorial with invalid input
+    // -----------------------------------
+    factorial.input = 13;
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+    if (ioctl_result == -1 && errno == EINVAL) {
+        printf("PASS: invalid input rejected\n");
+    } else {
+        test_passed = false;
+    }
+
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
+
+    // -----------------------------------
+    // TEST 7: factorial nonzero flags & valid input
+    // -----------------------------------
+    factorial.input = 5;
+    factorial.flags = 5;
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+    if (ioctl_result == -1 && errno == EINVAL) {
+        printf("PASS: valid input and invalid flags rejected\n");
+    } else {
+        test_passed = false;
+    }
+
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
+
+    // -----------------------------------
+    // TEST 8: factorial nonzero reserved & valid input
+    // -----------------------------------
+    factorial.input = 5;
+    factorial.flags = 0;
+    factorial.reserved = 5;
+    
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+    if (ioctl_result == -1 && errno == EINVAL) {
+        printf("PASS: valid input and invalid reserved rejected\n");
+    } else {
+        test_passed = false;
+    }
+
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
+
+    // -----------------------------------
+    // TEST 9: factorial nonzero flags & valid input
+    // -----------------------------------
+    factorial.input = 5;
+    factorial.flags = 0;
+    factorial.reserved = 0;
+    
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+    if (ioctl_result == -1 && errno == EOPNOTSUPP) {
+        printf("PASS: valid input accepted\n");
+    } else {
+        test_passed = false;
+    }
+
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
 
     close(f_open);
 
