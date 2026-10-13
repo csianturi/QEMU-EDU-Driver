@@ -16,6 +16,8 @@
 #include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/io.h>
+#include <linux/miscdevice.h>
+#include <linux/fs.h>
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEV_ID 0x11e8
@@ -23,14 +25,46 @@
 
 MODULE_LICENSE("GPL");
 
+/*
+    -------------------------
+    PCI DEVICE DRIVER STRUCT
+    -------------------------
+*/
+
 static const struct pci_device_id id_table[] = {
     {PCI_DEVICE(EDU_VENDOR_ID, EDU_DEV_ID)},
     {}
 };
 
+static int edu_open (struct inode *inode, struct file *file) {
+    pr_info("edu_lab: device opened\n");
+    return 0;
+}
+
+static int edu_release (struct inode *inode, struct file *file){
+    pr_info("edu_lab: device released\n");
+    return 0;
+}
+
+static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
+    pr_info("ioctl cmd: %#x\n", cmd);
+
+    return -ENOTTY;
+}
+
+static const struct file_operations edu_fops = {
+    .owner = THIS_MODULE,
+    .open = edu_open,
+    .release = edu_release,
+    .unlocked_ioctl = edu_ioctl
+};
+
 struct edu_device {
     void __iomem *bar0;
+    struct miscdevice miscdev;
 };
+
+
 
 
 static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
@@ -87,8 +121,23 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return -EIO;
     }
 
-    pci_set_drvdata(dev, state);
+    state->miscdev.minor = MISC_DYNAMIC_MINOR;
+    state->miscdev.name = "edu_lab0";
+    state->miscdev.fops = &edu_fops;
+    state->miscdev.parent = &dev->dev;
 
+    pci_set_drvdata(dev, state);
+    int misc_result = misc_register(&state->miscdev);
+
+    if(misc_result != 0) {
+        pr_info("Misc Registration Failed: %d\n", misc_result);
+        pci_set_drvdata(dev, NULL);
+        pci_iounmap(dev, state->bar0);
+        pci_release_region(dev, 0);
+        pci_disable_device(dev);
+        kfree(state);
+        return misc_result;
+    }
     
     return 0;
 }
@@ -98,6 +147,7 @@ static void edu_remove(struct pci_dev *dev) {
 
     struct edu_device *state = pci_get_drvdata(dev);
 
+    misc_deregister(&state->miscdev);
     pci_set_drvdata(dev, NULL);
     pci_iounmap(dev, state->bar0);
     pci_release_region(dev, 0);
@@ -105,7 +155,6 @@ static void edu_remove(struct pci_dev *dev) {
     kfree(state);
     return;
 }
-
 
 
 static struct pci_driver edu_driver = {
@@ -131,3 +180,12 @@ static void example_stop(void) {
 
 module_init(example_start);
 module_exit(example_stop);
+
+
+
+/*
+    -------------------------
+    FILE OPERATIONS
+    -------------------------
+*/
+
