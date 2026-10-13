@@ -18,6 +18,8 @@
 #include <linux/io.h>
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
+#include <linux/uaccess.h>
+#include "edu_ioctl.h"
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEV_ID 0x11e8
@@ -48,6 +50,19 @@ static int edu_release (struct inode *inode, struct file *file){
 
 static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
     pr_info("ioctl cmd: %#x\n", cmd);
+
+    if(cmd == EDU_IOCTL_GET_INFO) {
+        pr_info("GET_INFO recognized: %#x\n", cmd);
+
+        struct edu_info response = {
+            .abi_version = 1
+        };
+
+        unsigned long copy_result = copy_to_user((void __user*)arg, &response, sizeof(response));
+        if(copy_result != 0) return -EFAULT;
+
+        return 0;
+    }
 
     return -ENOTTY;
 }
