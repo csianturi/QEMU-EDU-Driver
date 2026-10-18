@@ -95,7 +95,39 @@ struct edu_device {
 
 
 
+/*
+    insmod loads edu_lab.ko and initializes a pci_driver struct (holds id table and probe)
+    Linux already found EDU device, it then gets matched against the ID table and probe is called
+    Probe allocates a seperate state object that holds bar0 and miscdev
+        Linux supplied a *dev, pci_set_drvdata binds the state object with dev
+    Probe prepares hardware access by enabling EDU, claiming BAR0, and mapping it
+        Mapping uses pci_iomap. Bar0 contains the mapping of EDU's MMIO registers
+        linux provides virtualized addr to access
+    Probe then establishes userspace interfaces by state->miscdev
+        This includes the fops struct that holds all fop functions
+        makes /dev/edu_lab0 available
+    Userpace program will open /dev/edu_lab0 and linux will create a kernel struct file to represent the instance
+        Misc subsystem finds registered descriptor using device number
+        connects the open file to edu_fops
+        sets file->private_date to miscdev descriptor
+        calls edu_open
+    The purpose of miscdev is to act like an userspace entry with a callback table when programs access it
+        edu_device holds the state
+        bar0 reaches the hardware
+        miscdev lets programs reach the driver
+    Userspace calls ioctl
+        linux finds the corresponding struct file and calls unlocked_ioctl.
+    file gets closed
 
+    | Structure     | What it represents                        | Who creates it           |
+    | pci_driver    | Your driver’s PCI callback table          | You define it |
+    | pci_dev       | One discovered PCI device—EDU             | Linux |
+    | edu_device    | Your driver’s state for that EDU device   | Your probe allocates it |
+    | miscdevice    | A userspace doorway named /dev/edu_lab0   | You embed it in edu_device |
+
+    pci_driver:       “EDU appeared or detached”
+    file_operations:  “A program opened, closed, or requested something”
+*/
 static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     pr_info("edu_lab: probe called\n");
 
@@ -103,6 +135,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     if (state == NULL) return -ENOMEM;
 
+    // enables dev
     int pci_enable_result = pci_enable_device_mem(dev);
     
     if(pci_enable_result != 0) {
@@ -113,6 +146,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     pr_info("PCI device Enabled: %d\n", pci_enable_result);
 
+    // claim BAR0
     int pci_region_result = pci_request_region(dev, 0, "edu_lab");
     
     if(pci_region_result != 0) {
@@ -122,7 +156,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return pci_region_result;
     }
 
-    // saves the kernel I/O mapping of BAR0
+    // obtains a kernel I/O address to access MMIO registers
     state->bar0 = pci_iomap(dev, 0, 0);
 
     if(state->bar0 == NULL) {
@@ -150,6 +184,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return -EIO;
     }
 
+    // preps userspace interface
     state->miscdev.minor = MISC_DYNAMIC_MINOR;
     state->miscdev.name = "edu_lab0";
     state->miscdev.fops = &edu_fops;
