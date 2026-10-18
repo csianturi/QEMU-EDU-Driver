@@ -19,6 +19,7 @@
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
+#include <linux/mutex.h>
 #include "edu_ioctl.h"
 
 #define EDU_VENDOR_ID 0x1234
@@ -33,6 +34,12 @@ MODULE_LICENSE("GPL");
     -------------------------
 */
 
+struct edu_device {
+    void __iomem *bar0;
+    struct miscdevice miscdev;
+    struct mutex op_lock;
+};
+
 static const struct pci_device_id id_table[] = {
     {PCI_DEVICE(EDU_VENDOR_ID, EDU_DEV_ID)},
     {}
@@ -40,6 +47,14 @@ static const struct pci_device_id id_table[] = {
 
 static int edu_open (struct inode *inode, struct file *file) {
     pr_info("edu_lab: device opened\n");
+    
+    // if a program opens the device, misc_open assigns file->private_data → state->miscdev
+    // ioctl will need file->private_data → whole edu_device instead, so switch it back
+    // container_of calculates where edu_device is by subtracting the offset of state->miscdev from curr addr
+    struct miscdevice *miscdev = file->private_data;
+    struct edu_device *state = container_of(miscdev, struct edu_device, miscdev);
+    file->private_data = state;
+    
     return 0;
 }
 
@@ -50,6 +65,9 @@ static int edu_release (struct inode *inode, struct file *file){
 
 static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
     pr_info("ioctl cmd: %#x\n", cmd);
+
+    struct edu_device *state = file->private_data;
+    
 
     if(cmd == EDU_IOCTL_GET_INFO) {
         pr_info("GET_INFO recognized: %#x\n", cmd);
@@ -65,7 +83,7 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
         return 0;
     } else if(cmd == EDU_IOCTL_FACTORIAL) {
         struct edu_factorial factorial = {};
-
+        
         // copy_from_user returns the number of bytes not copied
         unsigned long copy_result = copy_from_user(&factorial, (void __user*)arg, sizeof(factorial));
         if(copy_result != 0) return -EFAULT;
@@ -73,6 +91,14 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
         if (factorial.input > 12 || factorial.flags != 0 || factorial.reserved != 0) {
             return -EINVAL;
         }
+
+        mutex_lock(&state->op_lock);
+
+        // liveness check
+        u32 read_result = ioread32(state->bar0 + EDU_REG_LIVENESS);
+        pr_info("Liveness Check: 0x%08x\n", read_result);
+
+        mutex_unlock(&state->op_lock);
 
         return -EOPNOTSUPP;
 
@@ -87,13 +113,6 @@ static const struct file_operations edu_fops = {
     .release = edu_release,
     .unlocked_ioctl = edu_ioctl
 };
-
-struct edu_device {
-    void __iomem *bar0;
-    struct miscdevice miscdev;
-};
-
-
 
 /*
     insmod loads edu_lab.ko and initializes a pci_driver struct (holds id table and probe)
@@ -134,6 +153,8 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     struct edu_device *state = kzalloc(sizeof(struct edu_device), GFP_KERNEL);
 
     if (state == NULL) return -ENOMEM;
+
+    mutex_init(&state->op_lock);
 
     // enables dev
     int pci_enable_result = pci_enable_device_mem(dev);
