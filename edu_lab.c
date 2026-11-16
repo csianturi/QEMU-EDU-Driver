@@ -21,6 +21,8 @@
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
 #include <linux/interrupt.h>
+#include <linux/completion.h>
+#include <linux/jiffies.h>
 #include "edu_ioctl.h"
 
 
@@ -45,6 +47,7 @@ struct edu_device {
     void __iomem *bar0;
     struct miscdevice miscdev;
     struct mutex op_lock;
+    struct completion op_done;
     int irq;
 };
 
@@ -56,6 +59,8 @@ static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
     if (ISR_read == 0) return IRQ_NONE;
 
     iowrite32(ISR_read, state->bar0 + EDU_REG_IRQ_ACK);
+
+    complete(&state->op_done);
 
     return IRQ_HANDLED;
 }
@@ -175,6 +180,8 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     if (state == NULL) return -ENOMEM;
 
+    init_completion(&state->op_done);
+
     mutex_init(&state->op_lock);
 
     // enables dev
@@ -268,8 +275,33 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return irq_reg;
     }
 
+    //trigger an INT
+    // this permits EDU to initiate mem transactions, instead of only respond to cpu access
+    // CPU writes 0x1 into EDU IRQ register, EDU raises an INT because of this and sends MSI message
+    // through the bus, int controller delivers int to CPU, then ISR runs.
     pci_set_master(dev);
     iowrite32(0x1, state->bar0 + EDU_REG_IRQ_RAISE);
+    
+    // waiting for completion will put the calling user space thread to sleep so CPU can do other work
+    // the write tells EDU to raise the interrupt
+    // it is not guaranteed that the CPU receives and executes that int immediately
+    // this thread may execute waiting before int is started
+    unsigned long completion_timeout = wait_for_completion_timeout(&state->op_done, msecs_to_jiffies(1000));
+    if(completion_timeout == 0) {
+        pr_info("IRQ Completion Timeout\n");
+        pci_clear_master(dev);
+        free_irq(state->irq, state);
+        pci_free_irq_vectors(dev);
+        pci_set_drvdata(dev, NULL);
+        pci_iounmap(dev, state->bar0);
+        pci_release_region(dev, 0);
+        pci_disable_device(dev);
+        kfree(state);
+        return -ETIMEDOUT;
+    }
+
+    pr_info("IRQ Completed Succesfully. %lu jiffies remaining\n", completion_timeout);
+    
 
 
     // preps userspace interface/misc registration
@@ -301,9 +333,9 @@ static void edu_remove(struct pci_dev *dev) {
     pr_info("Driver detached from EDU\n");
 
     struct edu_device *state = pci_get_drvdata(dev);
-    free_irq(state->irq, state);
     misc_deregister(&state->miscdev);
     pci_clear_master(dev);
+    free_irq(state->irq, state);
     pci_free_irq_vectors(dev);
     pci_set_drvdata(dev, NULL);
     pci_iounmap(dev, state->bar0);
