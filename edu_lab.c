@@ -126,6 +126,10 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
         }
 
         mutex_lock(&state->op_lock);
+        if(state->op_state == EDU_FAILED) {
+            mutex_unlock(&state->op_lock);
+            return -EIO;
+        }
 
         // liveness check
         u32 read_result = ioread32(state->bar0 + EDU_REG_LIVENESS);
@@ -190,10 +194,6 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     init_completion(&state->op_done);
 
     mutex_init(&state->op_lock);
-    if(state->op_state == EDU_FAILED) {
-        mutex_unlock(&state->op_lock);
-        return -EIO;
-    }
 
     // enables dev
     int pci_enable_result = pci_enable_device_mem(dev);
