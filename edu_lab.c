@@ -81,6 +81,7 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
         if(copy_result != 0) return -EFAULT;
 
         return 0;
+
     } else if(cmd == EDU_IOCTL_FACTORIAL) {
         struct edu_factorial factorial = {};
         
@@ -188,9 +189,11 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return -ENOMEM;
     }
     
+    // id register checks
     u32 read_result = ioread32(state->bar0);
     pr_info("EDU ID: 0x%08x\n", read_result);
 
+    // liveness register checks
     u32 write_val = 0x55555555;
     iowrite32(write_val, state->bar0 + EDU_REG_LIVENESS);
     read_result = ioread32(state->bar0 + EDU_REG_LIVENESS);
@@ -205,7 +208,19 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return -EIO;
     }
 
-    // preps userspace interface
+    int vec_alloc_result = pci_alloc_irq_vectors(dev, 1, 1, PCI_IRQ_MSI);
+    pr_info("Vector allocation status: %d\n", vec_alloc_result);
+
+    if(vec_alloc_result < 0) {
+        pr_info("Vector allocation failed: %d\n", vec_alloc_result);
+        pci_iounmap(dev, state->bar0);
+        pci_release_region(dev, 0);
+        pci_disable_device(dev);
+        kfree(state);
+        return vec_alloc_result;
+    }
+
+    // preps userspace interface/misc registration
     state->miscdev.minor = MISC_DYNAMIC_MINOR;
     state->miscdev.name = "edu_lab0";
     state->miscdev.fops = &edu_fops;
@@ -216,6 +231,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     if(misc_result != 0) {
         pr_info("Misc Registration Failed: %d\n", misc_result);
+        pci_free_irq_vectors(dev);
         pci_set_drvdata(dev, NULL);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
@@ -233,6 +249,7 @@ static void edu_remove(struct pci_dev *dev) {
     struct edu_device *state = pci_get_drvdata(dev);
 
     misc_deregister(&state->miscdev);
+    pci_free_irq_vectors(dev);
     pci_set_drvdata(dev, NULL);
     pci_iounmap(dev, state->bar0);
     pci_release_region(dev, 0);
@@ -252,8 +269,7 @@ static struct pci_driver edu_driver = {
 static int example_start(void) {
     pr_info("----------NEW ITERATION----------\n");
     pr_info("example: module loaded\n");
-    pci_register_driver(&edu_driver);
-    return 0;
+    return pci_register_driver(&edu_driver);
 }
 
 static void example_stop(void) {
