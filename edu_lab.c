@@ -28,6 +28,7 @@
 #define EDU_DEV_ID 0x11e8
 #define EDU_REG_LIVENESS 0x04
 #define EDU_REG_ISR 0x24
+#define EDU_REG_IRQ_RAISE 0x60
 #define EDU_REG_IRQ_ACK 0x64
 
 MODULE_LICENSE("GPL");
@@ -51,6 +52,7 @@ static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
     struct edu_device *state = dev_id;
 
     u32 ISR_read = ioread32(state->bar0 + EDU_REG_ISR);
+    pr_info("EDU interrupt status register: 0x%08x\n", ISR_read);
     if (ISR_read == 0) return IRQ_NONE;
 
     iowrite32(ISR_read, state->bar0 + EDU_REG_IRQ_ACK);
@@ -266,6 +268,9 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return irq_reg;
     }
 
+    pci_set_master(dev);
+    iowrite32(0x1, state->bar0 + EDU_REG_IRQ_RAISE);
+
 
     // preps userspace interface/misc registration
     state->miscdev.minor = MISC_DYNAMIC_MINOR;
@@ -278,6 +283,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     if(misc_result != 0) {
         pr_info("Misc Registration Failed: %d\n", misc_result);
+        pci_clear_master(dev);
         free_irq(state->irq, state);
         pci_free_irq_vectors(dev);
         pci_set_drvdata(dev, NULL);
@@ -297,6 +303,7 @@ static void edu_remove(struct pci_dev *dev) {
     struct edu_device *state = pci_get_drvdata(dev);
     free_irq(state->irq, state);
     misc_deregister(&state->miscdev);
+    pci_clear_master(dev);
     pci_free_irq_vectors(dev);
     pci_set_drvdata(dev, NULL);
     pci_iounmap(dev, state->bar0);
