@@ -35,6 +35,12 @@
 
 MODULE_LICENSE("GPL");
 
+enum EDU_state {
+    EDU_READY,
+    EDU_BUSY,
+    EDU_FAILED
+};
+
 /*
     -------------------------
     PCI DEVICE DRIVER STRUCT
@@ -49,6 +55,7 @@ struct edu_device {
     struct mutex op_lock;
     struct completion op_done;
     int irq;
+    enum EDU_state op_state; 
 };
 
 static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
@@ -302,7 +309,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     pr_info("IRQ Completed Succesfully. %lu jiffies remaining\n", completion_timeout);
     
-
+    state->op_state = EDU_READY;
 
     // preps userspace interface/misc registration
     state->miscdev.minor = MISC_DYNAMIC_MINOR;
