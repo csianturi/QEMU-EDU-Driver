@@ -20,11 +20,15 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
+#include <linux/interrupt.h>
 #include "edu_ioctl.h"
+
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEV_ID 0x11e8
 #define EDU_REG_LIVENESS 0x04
+#define EDU_REG_ISR 0x24
+#define EDU_REG_IRQ_ACK 0x64
 
 MODULE_LICENSE("GPL");
 
@@ -34,12 +38,25 @@ MODULE_LICENSE("GPL");
     -------------------------
 */
 
+
+
 struct edu_device {
     void __iomem *bar0;
     struct miscdevice miscdev;
     struct mutex op_lock;
     int irq;
 };
+
+static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
+    struct edu_device *state = dev_id;
+
+    u32 ISR_read = ioread32(state->bar0 + EDU_REG_ISR);
+    if (ISR_read == 0) return IRQ_NONE;
+
+    iowrite32(ISR_read, state->bar0 + EDU_REG_IRQ_ACK);
+
+    return IRQ_HANDLED;
+}
 
 static const struct pci_device_id id_table[] = {
     {PCI_DEVICE(EDU_VENDOR_ID, EDU_DEV_ID)},
@@ -236,6 +253,19 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     pr_info("Linux IRQ vector: %d\n", state->irq);
 
+    int irq_reg = request_irq(state->irq, edu_irq_handler, 0, "edu_lab", state);
+
+    if(irq_reg < 0) {
+        pr_info("IRQ Registration Failed: %d\n", irq_reg);
+        pci_free_irq_vectors(dev);
+        pci_set_drvdata(dev, NULL);
+        pci_iounmap(dev, state->bar0);
+        pci_release_region(dev, 0);
+        pci_disable_device(dev);
+        kfree(state);
+        return irq_reg;
+    }
+
 
     // preps userspace interface/misc registration
     state->miscdev.minor = MISC_DYNAMIC_MINOR;
@@ -248,6 +278,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     if(misc_result != 0) {
         pr_info("Misc Registration Failed: %d\n", misc_result);
+        free_irq(state->irq, state);
         pci_free_irq_vectors(dev);
         pci_set_drvdata(dev, NULL);
         pci_iounmap(dev, state->bar0);
@@ -264,7 +295,7 @@ static void edu_remove(struct pci_dev *dev) {
     pr_info("Driver detached from EDU\n");
 
     struct edu_device *state = pci_get_drvdata(dev);
-
+    free_irq(state->irq, state);
     misc_deregister(&state->miscdev);
     pci_free_irq_vectors(dev);
     pci_set_drvdata(dev, NULL);
