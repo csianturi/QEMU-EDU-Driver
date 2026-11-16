@@ -38,6 +38,7 @@ struct edu_device {
     void __iomem *bar0;
     struct miscdevice miscdev;
     struct mutex op_lock;
+    int irq;
 };
 
 static const struct pci_device_id id_table[] = {
@@ -209,7 +210,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     }
 
     int vec_alloc_result = pci_alloc_irq_vectors(dev, 1, 1, PCI_IRQ_MSI);
-    pr_info("Vector allocation status: %d\n", vec_alloc_result);
+    //pr_info("Vector allocation status: %d\n", vec_alloc_result);
 
     if(vec_alloc_result < 0) {
         pr_info("Vector allocation failed: %d\n", vec_alloc_result);
@@ -219,6 +220,22 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         kfree(state);
         return vec_alloc_result;
     }
+
+    state->irq = pci_irq_vector(dev, 0);
+
+    if(state->irq < 0) {
+        pr_info("Linux IRQ vector failed: %d\n", state->irq);
+        int irq_state = state->irq;
+        pci_free_irq_vectors(dev);
+        pci_iounmap(dev, state->bar0);
+        pci_release_region(dev, 0);
+        pci_disable_device(dev);
+        kfree(state);
+        return irq_state;
+    }
+
+    pr_info("Linux IRQ vector: %d\n", state->irq);
+
 
     // preps userspace interface/misc registration
     state->miscdev.minor = MISC_DYNAMIC_MINOR;
