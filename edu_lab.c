@@ -26,6 +26,8 @@
 #include "edu_ioctl.h"
 
 
+#define EDU_IRQ_FACTORIAL 0x00000001
+
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEV_ID 0x11e8
 #define EDU_REG_LIVENESS 0x04
@@ -66,8 +68,8 @@ static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
     if (ISR_read == 0) return IRQ_NONE;
 
     iowrite32(ISR_read, state->bar0 + EDU_REG_IRQ_ACK);
-
-    complete(&state->op_done);
+    
+    if(ISR_read & EDU_IRQ_FACTORIAL) complete(&state->op_done);
 
     return IRQ_HANDLED;
 }
@@ -286,32 +288,33 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return irq_reg;
     }
 
-    //trigger an INT
     // this permits EDU to initiate mem transactions, instead of only respond to cpu access
+    pci_set_master(dev);
+
+    //trigger an INT
     // CPU writes 0x1 into EDU IRQ register, EDU raises an INT because of this and sends MSI message
     // through the bus, int controller delivers int to CPU, then ISR runs.
-    pci_set_master(dev);
-    iowrite32(0x1, state->bar0 + EDU_REG_IRQ_RAISE);
+    //iowrite32(0x1, state->bar0 + EDU_REG_IRQ_RAISE);
     
     // waiting for completion will put the calling user space thread to sleep so CPU can do other work
     // the write tells EDU to raise the interrupt
     // it is not guaranteed that the CPU receives and executes that int immediately
     // this thread may execute waiting before int is started
-    unsigned long completion_timeout = wait_for_completion_timeout(&state->op_done, msecs_to_jiffies(1000));
-    if(completion_timeout == 0) {
-        pr_info("IRQ Completion Timeout\n");
-        pci_clear_master(dev);
-        free_irq(state->irq, state);
-        pci_free_irq_vectors(dev);
-        pci_set_drvdata(dev, NULL);
-        pci_iounmap(dev, state->bar0);
-        pci_release_region(dev, 0);
-        pci_disable_device(dev);
-        kfree(state);
-        return -ETIMEDOUT;
-    }
+    //unsigned long completion_timeout = wait_for_completion_timeout(&state->op_done, msecs_to_jiffies(1000));
+    // if(completion_timeout == 0) {
+    //     pr_info("IRQ Completion Timeout\n");
+    //     pci_clear_master(dev);
+    //     free_irq(state->irq, state);
+    //     pci_free_irq_vectors(dev);
+    //     pci_set_drvdata(dev, NULL);
+    //     pci_iounmap(dev, state->bar0);
+    //     pci_release_region(dev, 0);
+    //     pci_disable_device(dev);
+    //     kfree(state);
+    //     return -ETIMEDOUT;
+    // }
 
-    pr_info("IRQ Completed Succesfully. %lu jiffies remaining\n", completion_timeout);
+    //pr_info("IRQ Completed Succesfully. %lu jiffies remaining\n", completion_timeout);
     
     state->op_state = EDU_READY;
 
