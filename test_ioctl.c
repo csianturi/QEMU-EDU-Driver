@@ -171,18 +171,20 @@ int main(){
     }
 
     // -----------------------------------
-    // TEST 9: factorial nonzero flags & valid input
+    // TEST 9: factorial zero flags & valid input
     // -----------------------------------
     factorial.input = 5;
     factorial.flags = 0;
     factorial.reserved = 0;
-    
+    factorial.result == 99; // sentinel
+
     ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
 
-    if (ioctl_result == -1 && errno == EOPNOTSUPP) {
-        printf("PASS: valid input accepted\n");
+    if (ioctl_result == 0 && factorial.result == 120) {
+        printf("PASS: %d! = %d\n", factorial.input, factorial.result);
     } else {
         test_passed = false;
+        printf("FAIL: %d != %d\n", factorial.input, factorial.result);
     }
 
     if(ioctl_result == -1) {

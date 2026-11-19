@@ -27,10 +27,14 @@
 
 
 #define EDU_IRQ_FACTORIAL 0x00000001
+#define EDU_STATUS_COMPUTING 0x01
+#define EDU_REG_STATUS_FACT_FINISH 0x80 
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEV_ID 0x11e8
 #define EDU_REG_LIVENESS 0x04
+#define EDU_REG_FACT_COMP 0x08
+#define EDU_REG_STATUS 0x20
 #define EDU_REG_ISR 0x24
 #define EDU_REG_IRQ_RAISE 0x60
 #define EDU_REG_IRQ_ACK 0x64
@@ -128,18 +132,73 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
         }
 
         mutex_lock(&state->op_lock);
-        if(state->op_state == EDU_FAILED) {
+        if(state->op_state != EDU_READY) {
             mutex_unlock(&state->op_lock);
             return -EIO;
         }
 
-        // liveness check
-        u32 read_result = ioread32(state->bar0 + EDU_REG_LIVENESS);
-        pr_info("Liveness Check: 0x%08x\n", read_result);
+        // disable EDU factorial completion interrupts so old events can't interfere with new event
+        u32 dev_status = ioread32(state->bar0 + EDU_REG_STATUS);
+        dev_status = (dev_status & ~(EDU_REG_STATUS_FACT_FINISH));
+        iowrite32(dev_status, state->bar0 + EDU_REG_STATUS);
 
+        // check if EDU  is idle
+        dev_status = ioread32(state->bar0 + EDU_REG_STATUS);
+        if((dev_status & EDU_STATUS_COMPUTING) == EDU_STATUS_COMPUTING) {
+            state->op_state = EDU_FAILED;
+            mutex_unlock(&state->op_lock);
+            return -EIO;
+        }
+
+        // ack the old status so that old ISR does not interfere
+        u32 ISR_status = ioread32(state->bar0 + EDU_REG_ISR);
+        iowrite32(ISR_status, state->bar0 + EDU_REG_IRQ_ACK);
+        ISR_status = ioread32(state->bar0 + EDU_REG_ISR);
+
+        synchronize_irq(state->irq);
+        reinit_completion(&state->op_done);
+
+        // initiate a new factorial request
+        state->op_state = EDU_BUSY;
+
+        // enable factorial interrupts through bit of status reg
+        dev_status = ioread32(state->bar0 + EDU_REG_STATUS);
+        dev_status = (dev_status | EDU_REG_STATUS_FACT_FINISH);
+        iowrite32(dev_status, state->bar0 + EDU_REG_STATUS);
+
+        // input to the factorial computation
+        iowrite32(factorial.input, state->bar0 + EDU_REG_FACT_COMP);
+
+        // wait for completion
+        unsigned long completion_timeout = wait_for_completion_timeout(&state->op_done, msecs_to_jiffies(1000));
+        if(completion_timeout == 0) {
+            state->op_state = EDU_FAILED;
+            mutex_unlock(&state->op_lock);
+            return -ETIMEDOUT;
+        }
+
+        // check if EDU is still computing
+        ISR_status = ioread32(state->bar0 + EDU_REG_STATUS);
+        if ((ISR_status & EDU_STATUS_COMPUTING) == EDU_STATUS_COMPUTING) {
+            state->op_state = EDU_FAILED;
+            mutex_unlock(&state->op_lock);
+            return -EIO;
+        }
+
+        // read the result
+        u32 factorial_result = ioread32(state->bar0 + EDU_REG_FACT_COMP);
+        state->op_state = EDU_READY;
         mutex_unlock(&state->op_lock);
 
-        return -EOPNOTSUPP;
+        factorial.result = factorial_result;
+            
+
+        
+
+        copy_result = copy_to_user((void __user*)arg, &factorial, sizeof(factorial));
+        if(copy_result != 0) return -EFAULT;
+
+        return 0;
 
     }
 
