@@ -171,6 +171,45 @@ int main(){
     }
 
     // -----------------------------------
+    // TEMPORARY: run with test_suppress_completion=1.
+    // Remove this block and its early return to restore Tests 9-13.
+    // -----------------------------------
+    factorial = (struct edu_factorial){
+        .input = 5,
+        .result = 99,
+    };
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+    int saved_errno = errno;
+
+    if (ioctl_result == -1 && saved_errno == ETIMEDOUT) {
+        printf("PASS: suppressed completion returned ETIMEDOUT\n");
+    } else {
+        test_passed = false;
+        printf("FAIL: expected ETIMEDOUT, ioctl return=%d, errno=%d\n",
+               ioctl_result, ioctl_result == -1 ? saved_errno : 0);
+    }
+
+    factorial = (struct edu_factorial){
+        .input = 5,
+        .result = 99,
+    };
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+    saved_errno = errno;
+
+    if (ioctl_result == -1 && saved_errno == EIO) {
+        printf("PASS: subsequent request returned EIO\n");
+    } else {
+        test_passed = false;
+        printf("FAIL: expected EIO, ioctl return=%d, errno=%d\n",
+               ioctl_result, ioctl_result == -1 ? saved_errno : 0);
+    }
+
+    close(f_open);
+    return test_passed ? 0 : 1;
+
+    // -----------------------------------
     // TEST 9: valid factorial 5!
     // -----------------------------------
     factorial.input = 5;
