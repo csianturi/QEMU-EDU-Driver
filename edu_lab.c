@@ -23,6 +23,7 @@
 #include <linux/interrupt.h>
 #include <linux/completion.h>
 #include <linux/jiffies.h>
+#include <linux/dma-mapping.h>
 #include "edu_ioctl.h"
 
 
@@ -40,6 +41,8 @@
 #define EDU_REG_IRQ_ACK 0x64
 
 MODULE_LICENSE("GPL");
+
+static const size_t edu_buffer_capacity = 4096;
 
 static bool test_suppress_completion = false;
 module_param(test_suppress_completion, bool, 0444);
@@ -64,6 +67,8 @@ struct edu_device {
     struct completion op_done;
     int irq;
     enum EDU_state op_state; 
+    void *dma_cpu;
+    dma_addr_t dma_handle;
 };
 
 static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
@@ -270,11 +275,29 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     pr_info("PCI device Enabled: %d\n", pci_enable_result);
 
+    int dma_mask_result = dma_set_mask_and_coherent(&dev->dev, DMA_BIT_MASK(28));
+
+    if(dma_enable_result != 0) {
+        pr_info("DMA mask setup failed: %d\n", dma_mask_result);
+        pci_disable_device(dev);
+        kfree(state);
+        return dma_mask_result;
+    }
+
+    state->dma_cpu = dma_alloc_coherent(&dev->dev, edu_buffer_capacity, &state->dma_handle, GFP_KERNEL);
+    if(state->dma_cpu == NULL) {
+        pr_info("DMA allocation failed");
+        pci_disable_device(dev);
+        kfree(state);
+        return -ENOMEM;
+    }
+
     // claim BAR0
     int pci_region_result = pci_request_region(dev, 0, "edu_lab");
     
     if(pci_region_result != 0) {
         pr_info("PCI BAR0 region request failed: %d\n", pci_region_result);
+        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return pci_region_result;
@@ -286,6 +309,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     if(state->bar0 == NULL) {
         pr_info("PCI BAR0 mapping failed\n");
         pci_release_region(dev, 0);
+        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return -ENOMEM;
@@ -305,6 +329,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pr_info("Liveness check failed. Expected value: 0x%08x\n", ~write_val);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
+        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return -EIO;
@@ -317,6 +342,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pr_info("Vector allocation failed: %d\n", vec_alloc_result);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
+        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return vec_alloc_result;
@@ -330,6 +356,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pci_free_irq_vectors(dev);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
+        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return irq_state;
@@ -345,6 +372,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pci_set_drvdata(dev, NULL);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
+        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return irq_reg;
@@ -397,6 +425,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pci_set_drvdata(dev, NULL);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
+        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return misc_result;
@@ -409,6 +438,7 @@ static void edu_remove(struct pci_dev *dev) {
     pr_info("Driver detached from EDU\n");
 
     struct edu_device *state = pci_get_drvdata(dev);
+    dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
     misc_deregister(&state->miscdev);
     pci_clear_master(dev);
     free_irq(state->irq, state);
