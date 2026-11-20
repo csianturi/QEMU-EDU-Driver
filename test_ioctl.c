@@ -27,7 +27,7 @@ int main(){
         test_passed = false;
     } else if (
         info.abi_version != 1           
-        || info.max_factorial_input != 0
+        || info.max_factorial_input != 12
         || info.max_roundtrip_len != 0
         || info.reserved != 0) {
 
@@ -89,7 +89,7 @@ int main(){
         test_passed = false;
     } else if (
         info.abi_version != 1           
-        || info.max_factorial_input != 0
+        || info.max_factorial_input != 12
         || info.max_roundtrip_len != 0
         || info.reserved != 0) {
 

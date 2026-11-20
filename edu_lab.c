@@ -111,7 +111,8 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
         pr_info("GET_INFO recognized: %#x\n", cmd);
 
         struct edu_info response = {
-            .abi_version = 1
+            .abi_version = 1,
+            .max_factorial_input = 12
         };
 
         // copy_to_user returns the number of bytes not copied
