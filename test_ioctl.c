@@ -171,27 +171,142 @@ int main(){
     }
 
     // -----------------------------------
-    // TEST 9: factorial zero flags & valid input
+    // TEST 9: valid factorial 5!
     // -----------------------------------
     factorial.input = 5;
     factorial.flags = 0;
     factorial.reserved = 0;
-    factorial.result == 99; // sentinel
+    factorial.result = 99; // sentinel
 
     ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
 
     if (ioctl_result == 0 && factorial.result == 120) {
-        printf("PASS: %d! = %d\n", factorial.input, factorial.result);
+        printf("PASS: %u! = %u\n", factorial.input, factorial.result);
     } else {
         test_passed = false;
-        printf("FAIL: %d != %d\n", factorial.input, factorial.result);
+        printf("FAIL: %u != %u, expected result: 120, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
+    }
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
+
+    // -----------------------------------
+    // TEST 10: valid factorial 0!
+    // -----------------------------------
+    factorial.input = 0;
+    factorial.flags = 0;
+    factorial.reserved = 0;
+    factorial.result = 99; // sentinel
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+    if (ioctl_result == 0 && factorial.result == 1) {
+        printf("PASS: %u! = %u\n", factorial.input, factorial.result);
+    } else {
+        test_passed = false;
+        printf("FAIL: %u != %u, expected result: 0, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
     }
 
     if(ioctl_result == -1) {
         perror("ioctl");
     }
 
+    // -----------------------------------
+    // TEST 11: valid factorial 1!
+    // -----------------------------------
+    factorial.input = 1;
+    factorial.flags = 0;
+    factorial.reserved = 0;
+    factorial.result = 99; // sentinel
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+    if (ioctl_result == 0 && factorial.result == 1) {
+        printf("PASS: %u! = %u\n", factorial.input, factorial.result);
+    } else {
+        test_passed = false;
+        printf("FAIL: %u != %u, expected result: 1, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
+    }
+
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
+
+    // -----------------------------------
+    // TEST 12: valid factorial 12!
+    // -----------------------------------
+    factorial.input = 12;
+    factorial.flags = 0;
+    factorial.reserved = 0;
+    factorial.result = 99; // sentinel
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+    if (ioctl_result == 0 && factorial.result == 479001600) {
+        printf("PASS: %u! = %u\n", factorial.input, factorial.result);
+    } else {
+        test_passed = false;
+        printf("FAIL: %u != %u, expected result: 479001600, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
+    }
+
+    if(ioctl_result == -1) {
+        perror("ioctl");
+    }
+
+
+    // -----------------------------------
+    // TEST 12: loop test 0!, 1!, 5!, 12!
+    // -----------------------------------
+
+    struct factorial_case {
+        unsigned int input;
+        unsigned int expected;
+    };
+
+    static const struct factorial_case cases[] = {
+        { .input = 0,  .expected = 1 },
+        { .input = 1,  .expected = 1 },
+        { .input = 5,  .expected = 120 },
+        { .input = 12, .expected = 479001600 },
+    };
+
+    bool loop_result = true;
+    size_t case_count = sizeof(cases) / sizeof(cases[0]); //whole array size / element size: 32/4
+
+    for (int i = 0; i < 100 && loop_result; i++) {
+        for (size_t j = 0; j < case_count; j++) {
+            factorial = (struct edu_factorial){
+                .input = cases[j].input,
+                .result = 99,
+            };
+
+            ioctl_result = ioctl(f_open, EDU_IOCTL_FACTORIAL, &factorial);
+
+            if (ioctl_result != 0) {
+                perror("factorial ioctl");
+                printf("FAIL: iteration=%d, input=%u\n",
+                        i + 1, cases[j].input);
+                loop_result = false;
+                break;
+            }
+
+            if (factorial.result != cases[j].expected) {
+                printf("FAIL: iteration=%d, input=%u, expected=%u, actual=%u\n",
+                        i + 1, cases[j].input,
+                        cases[j].expected, factorial.result);
+                loop_result = false;
+                break;
+            }
+    
+        }
+    
+    }
+
+    if(loop_result) printf("100 Loop test PASS\n");
+    else test_passed = false;
+    
     close(f_open);
+    
 
     if (test_passed) return 0;
 
