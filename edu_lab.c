@@ -41,6 +41,10 @@
 
 MODULE_LICENSE("GPL");
 
+static bool test_suppress_completion = false;
+module_param(test_suppress_completion, bool, 0444);
+MODULE_PARM_DESC(test_suppress_completion, "Test only: acknowledge interrupts but suppress completion signalling");
+
 enum EDU_state {
     EDU_READY,
     EDU_BUSY,
@@ -52,8 +56,6 @@ enum EDU_state {
     PCI DEVICE DRIVER STRUCT
     -------------------------
 */
-
-
 
 struct edu_device {
     void __iomem *bar0;
@@ -73,7 +75,7 @@ static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
 
     iowrite32(ISR_read, state->bar0 + EDU_REG_IRQ_ACK);
     
-    if(ISR_read & EDU_IRQ_FACTORIAL) complete(&state->op_done);
+    if((ISR_read & EDU_IRQ_FACTORIAL) && !test_suppress_completion) complete(&state->op_done);
 
     return IRQ_HANDLED;
 }

@@ -255,7 +255,7 @@ int main(){
 
 
     // -----------------------------------
-    // TEST 12: loop test 0!, 1!, 5!, 12!
+    // TEST 13: loop test 0!, 1!, 5!, 12!
     // -----------------------------------
 
     struct factorial_case {
@@ -304,6 +304,7 @@ int main(){
 
     if(loop_result) printf("100 Loop test PASS\n");
     else test_passed = false;
+    
     
     close(f_open);
     
