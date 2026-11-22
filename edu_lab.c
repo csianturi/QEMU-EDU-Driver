@@ -208,6 +208,23 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
 
         return 0;
 
+    } else if(cmd == EDU_IOCTL_ROUNDTRIP) {
+        struct edu_roundtrip *roundtrip_state = kzalloc(sizeof(struct edu_roundtrip), GFP_KERNEL);
+        if(roundtrip_state == NULL) return -ENOMEM;
+
+        unsigned long copy_result = copy_from_user(roundtrip_state, (void __user*)arg, sizeof(*roundtrip_state));
+        if(copy_result != 0) {
+            kfree(roundtrip_state);
+            return -EFAULT;
+        }
+
+        if(roundtrip_state->length < 1 || roundtrip_state->length > edu_buffer_capacity || roundtrip_state->flags != 0) {
+            kfree(roundtrip_state);
+            return -EINVAL;
+        }
+
+        kfree(roundtrip_state);
+        return -EOPNOTSUPP;
     }
 
     return -ENOTTY;
@@ -277,7 +294,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     int dma_mask_result = dma_set_mask_and_coherent(&dev->dev, DMA_BIT_MASK(28));
 
-    if(dma_enable_result != 0) {
+    if(dma_mask_result != 0) {
         pr_info("DMA mask setup failed: %d\n", dma_mask_result);
         pci_disable_device(dev);
         kfree(state);
@@ -286,7 +303,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
 
     state->dma_cpu = dma_alloc_coherent(&dev->dev, edu_buffer_capacity, &state->dma_handle, GFP_KERNEL);
     if(state->dma_cpu == NULL) {
-        pr_info("DMA allocation failed");
+        pr_info("DMA allocation failed\n");
         pci_disable_device(dev);
         kfree(state);
         return -ENOMEM;
@@ -438,7 +455,6 @@ static void edu_remove(struct pci_dev *dev) {
     pr_info("Driver detached from EDU\n");
 
     struct edu_device *state = pci_get_drvdata(dev);
-    dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
     misc_deregister(&state->miscdev);
     pci_clear_master(dev);
     free_irq(state->irq, state);
@@ -446,6 +462,7 @@ static void edu_remove(struct pci_dev *dev) {
     pci_set_drvdata(dev, NULL);
     pci_iounmap(dev, state->bar0);
     pci_release_region(dev, 0);
+    dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
     pci_disable_device(dev);
     kfree(state);
     return;
