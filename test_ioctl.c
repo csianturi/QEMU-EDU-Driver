@@ -344,7 +344,101 @@ int main(){
     if(loop_result) printf("100 Loop test PASS\n");
     else test_passed = false;
     
-    
+    // -----------------------------------
+    // TEST 13: Roundtrip with NULL userspace pointer
+    // -----------------------------------
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_ROUNDTRIP, NULL);
+
+    if (ioctl_result == -1 && errno == EFAULT) {
+        perror("ioctl");
+        printf("PASS: Roundtrip test with NULL userspace pointer rejected\n");
+    } else {
+        test_passed = false;
+    }
+
+    // -----------------------------------
+    // TEST 14: Roundtrip with length 0 and flag 0
+    // -----------------------------------
+
+    struct edu_roundtrip roundtrip_state = {};
+
+    roundtrip_state.length = 0;
+    roundtrip_state.flags = 0;
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_ROUNDTRIP, &roundtrip_state);
+
+    if (ioctl_result == -1 && errno == EINVAL) {
+        perror("ioctl");
+        printf("PASS: Roundtrip test with length: %d and flags: %d rejected\n", roundtrip_state.length, roundtrip_state.flags);
+    } else {
+        test_passed = false;
+    }
+
+    // -----------------------------------
+    // TEST 15: Roundtrip with length 4097 and flag 0
+    // -----------------------------------
+
+    roundtrip_state.length = 4097;
+    roundtrip_state.flags = 0;
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_ROUNDTRIP, &roundtrip_state);
+
+    if (ioctl_result == -1 && errno == EINVAL) {
+        perror("ioctl");
+        printf("PASS: Roundtrip test with length: %d and flags: %d rejected\n", roundtrip_state.length, roundtrip_state.flags);
+    } else {
+        test_passed = false;
+    }
+
+    // -----------------------------------
+    // TEST 16: Roundtrip with length 1 and flag 5
+    // -----------------------------------
+
+    roundtrip_state.length = 1;
+    roundtrip_state.flags = 5;
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_ROUNDTRIP, &roundtrip_state);
+
+    if (ioctl_result == -1 && errno == EINVAL) {
+        perror("ioctl");
+        printf("PASS: Roundtrip test with length: %d and flags: %d rejected\n", roundtrip_state.length, roundtrip_state.flags);
+    } else {
+        test_passed = false;
+    }
+
+    // -----------------------------------
+    // TEST 17: Roundtrip with length 1 and flag 5
+    // -----------------------------------
+
+    roundtrip_state.length = 1;
+    roundtrip_state.flags = 5;
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_ROUNDTRIP, &roundtrip_state);
+
+    if (ioctl_result == -1 && errno == EOPNOTSUPP) {
+        perror("ioctl");
+        printf("PASS: Roundtrip test with length: %d and flags: %d rejected, not supported\n", roundtrip_state.length, roundtrip_state.flags);
+    } else {
+        test_passed = false;
+    }
+
+    // -----------------------------------
+    // TEST 18: Roundtrip with length 4096 and flag 0
+    // -----------------------------------
+
+    roundtrip_state.length = 4096;
+    roundtrip_state.flags = 0;
+
+    ioctl_result = ioctl(f_open, EDU_IOCTL_ROUNDTRIP, &roundtrip_state);
+
+    if (ioctl_result == -1 && errno == EOPNOTSUPP) {
+        perror("ioctl");
+        printf("PASS: Roundtrip test with length: %d and flags: %d rejected, not supported\n", roundtrip_state.length, roundtrip_state.flags);
+    } else {
+        test_passed = false;
+    }
+
     close(f_open);
     
 
