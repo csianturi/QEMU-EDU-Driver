@@ -6,6 +6,33 @@
 #include <stdbool.h>
 #include "edu_ioctl.h"
 
+static void report_ioctl_failure(const char *test, int result, int expected_errno)
+{
+    int actual_errno = result == -1 ? errno : 0;
+    printf("FAIL: %s: expected return=-1, errno=%d; actual return=%d, errno=%d\n",
+           test, expected_errno, result, actual_errno);
+}
+
+static void report_info_failure(const char *test, const struct edu_info *info)
+{
+    printf("FAIL: %s: expected version=1, factorial_limit=12, "
+           "roundtrip_limit=0, reserved=0; actual version=%u, "
+           "factorial_limit=%u, roundtrip_limit=%u, reserved=%u\n",
+           test, info->abi_version, info->max_factorial_input,
+           info->max_roundtrip_len, info->reserved);
+}
+
+static void report_factorial_failure(const char *test, int result,
+                                     const struct edu_factorial *request,
+                                     unsigned int expected)
+{
+    int actual_errno = result == -1 ? errno : 0;
+    printf("FAIL: %s: input=%u, expected=%u, actual=%u, "
+           "ioctl return=%d, errno=%d\n",
+           test, request->input, expected, request->result,
+           result, actual_errno);
+}
+
 int main(){
     int f_open = open("/dev/edu_lab0", O_RDWR);
     
@@ -23,7 +50,7 @@ int main(){
     int ioctl_result = ioctl(f_open, EDU_IOCTL_GET_INFO, &info);
 
     if(ioctl_result == -1) {
-        perror("ioctl");
+        perror("FAIL: Test 1 GET_INFO");
         test_passed = false;
     } else if (
         info.abi_version != 1           
@@ -32,7 +59,7 @@ int main(){
         || info.reserved != 0) {
 
         test_passed = false;
-        
+        report_info_failure("Test 1 GET_INFO", &info);
     } else {
         printf("abi_version: %u\n", info.abi_version);
         printf("max_factorial_input: %u\n", info.max_factorial_input);
@@ -56,6 +83,7 @@ int main(){
     if (ioctl_result == -1 && errno == EFAULT) {
         printf("PASS: NULL arg rejected\n");
     } else {
+        report_ioctl_failure("Test 2 GET_INFO null pointer", ioctl_result, EFAULT);
         test_passed = false;
     }
 
@@ -72,6 +100,7 @@ int main(){
     if (ioctl_result == -1 && errno == ENOTTY) {
         printf("PASS: invalid cmd and NULL arg rejected\n");
     } else {
+        report_ioctl_failure("Test 3 unknown command", ioctl_result, ENOTTY);
         test_passed = false;
     }
 
@@ -85,7 +114,7 @@ int main(){
     ioctl_result = ioctl(f_open, EDU_IOCTL_GET_INFO, &info);
 
     if(ioctl_result == -1) {
-        perror("ioctl");
+        perror("FAIL: Test 4 GET_INFO after rejected requests");
         test_passed = false;
     } else if (
         info.abi_version != 1           
@@ -94,7 +123,7 @@ int main(){
         || info.reserved != 0) {
 
         test_passed = false;
-        
+        report_info_failure("Test 4 GET_INFO after rejected requests", &info);
     } else {
         printf("abi_version: %u\n", info.abi_version);
         printf("max_factorial_input: %u\n", info.max_factorial_input);
@@ -111,6 +140,7 @@ int main(){
     if (ioctl_result == -1 && errno == EFAULT) {
         printf("PASS: NULL arg rejected\n");
     } else {
+        report_ioctl_failure("Test 5 FACTORIAL null pointer", ioctl_result, EFAULT);
         test_passed = false;
     }
 
@@ -127,6 +157,7 @@ int main(){
     if (ioctl_result == -1 && errno == EINVAL) {
         printf("PASS: invalid input rejected\n");
     } else {
+        report_ioctl_failure("Test 6 FACTORIAL input 13", ioctl_result, EINVAL);
         test_passed = false;
     }
 
@@ -144,6 +175,7 @@ int main(){
     if (ioctl_result == -1 && errno == EINVAL) {
         printf("PASS: valid input and invalid flags rejected\n");
     } else {
+        report_ioctl_failure("Test 7 FACTORIAL nonzero flags", ioctl_result, EINVAL);
         test_passed = false;
     }
 
@@ -163,6 +195,7 @@ int main(){
     if (ioctl_result == -1 && errno == EINVAL) {
         printf("PASS: valid input and invalid reserved rejected\n");
     } else {
+        report_ioctl_failure("Test 8 FACTORIAL nonzero reserved", ioctl_result, EINVAL);
         test_passed = false;
     }
 
@@ -223,7 +256,7 @@ int main(){
         printf("PASS: %u! = %u\n", factorial.input, factorial.result);
     } else {
         test_passed = false;
-        printf("FAIL: %u != %u, expected result: 120, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
+        report_factorial_failure("Test 9 factorial 5!", ioctl_result, &factorial, 120);
     }
     if(ioctl_result == -1) {
         perror("ioctl");
@@ -243,7 +276,7 @@ int main(){
         printf("PASS: %u! = %u\n", factorial.input, factorial.result);
     } else {
         test_passed = false;
-        printf("FAIL: %u != %u, expected result: 0, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
+        report_factorial_failure("Test 10 factorial 0!", ioctl_result, &factorial, 1);
     }
 
     if(ioctl_result == -1) {
@@ -264,7 +297,7 @@ int main(){
         printf("PASS: %u! = %u\n", factorial.input, factorial.result);
     } else {
         test_passed = false;
-        printf("FAIL: %u != %u, expected result: 1, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
+        report_factorial_failure("Test 11 factorial 1!", ioctl_result, &factorial, 1);
     }
 
     if(ioctl_result == -1) {
@@ -285,7 +318,7 @@ int main(){
         printf("PASS: %u! = %u\n", factorial.input, factorial.result);
     } else {
         test_passed = false;
-        printf("FAIL: %u != %u, expected result: 479001600, ioctl return: %d", factorial.input, factorial.result, ioctl_result);
+        report_factorial_failure("Test 12 factorial 12!", ioctl_result, &factorial, 479001600);
     }
 
     if(ioctl_result == -1) {
@@ -354,6 +387,7 @@ int main(){
         perror("ioctl");
         printf("PASS: Roundtrip test with NULL userspace pointer rejected\n");
     } else {
+        report_ioctl_failure("ROUNDTRIP null pointer", ioctl_result, EFAULT);
         test_passed = false;
     }
 
@@ -370,8 +404,9 @@ int main(){
 
     if (ioctl_result == -1 && errno == EINVAL) {
         perror("ioctl");
-        printf("PASS: Roundtrip test with length: %d and flags: %d rejected\n", roundtrip_state.length, roundtrip_state.flags);
+        printf("PASS: Roundtrip test with length: %u and flags: %u rejected\n", roundtrip_state.length, roundtrip_state.flags);
     } else {
+        report_ioctl_failure("ROUNDTRIP length 0, flags 0", ioctl_result, EINVAL);
         test_passed = false;
     }
 
@@ -386,8 +421,9 @@ int main(){
 
     if (ioctl_result == -1 && errno == EINVAL) {
         perror("ioctl");
-        printf("PASS: Roundtrip test with length: %d and flags: %d rejected\n", roundtrip_state.length, roundtrip_state.flags);
+        printf("PASS: Roundtrip test with length: %u and flags: %u rejected\n", roundtrip_state.length, roundtrip_state.flags);
     } else {
+        report_ioctl_failure("ROUNDTRIP length 4097, flags 0", ioctl_result, EINVAL);
         test_passed = false;
     }
 
@@ -402,13 +438,14 @@ int main(){
 
     if (ioctl_result == -1 && errno == EINVAL) {
         perror("ioctl");
-        printf("PASS: Roundtrip test with length: %d and flags: %d rejected\n", roundtrip_state.length, roundtrip_state.flags);
+        printf("PASS: Roundtrip test with length: %u and flags: %u rejected\n", roundtrip_state.length, roundtrip_state.flags);
     } else {
+        report_ioctl_failure("ROUNDTRIP length 1, flags 5", ioctl_result, EINVAL);
         test_passed = false;
     }
 
     // -----------------------------------
-    // TEST 17: Roundtrip with length 1 and flag 5
+    // TEST 17: Roundtrip with length 1 and flag 0
     // -----------------------------------
 
     roundtrip_state.length = 1;
@@ -418,8 +455,9 @@ int main(){
 
     if (ioctl_result == -1 && errno == EOPNOTSUPP) {
         perror("ioctl");
-        printf("PASS: Roundtrip test with length: %d and flags: %d rejected, not supported\n", roundtrip_state.length, roundtrip_state.flags);
+        printf("PASS: Roundtrip test with length: %u and flags: %u rejected, not supported\n", roundtrip_state.length, roundtrip_state.flags);
     } else {
+        report_ioctl_failure("ROUNDTRIP length 1, flags 0", ioctl_result, EOPNOTSUPP);
         test_passed = false;
     }
 
@@ -434,8 +472,9 @@ int main(){
 
     if (ioctl_result == -1 && errno == EOPNOTSUPP) {
         perror("ioctl");
-        printf("PASS: Roundtrip test with length: %d and flags: %d rejected, not supported\n", roundtrip_state.length, roundtrip_state.flags);
+        printf("PASS: Roundtrip test with length: %u and flags: %u rejected, not supported\n", roundtrip_state.length, roundtrip_state.flags);
     } else {
+        report_ioctl_failure("ROUNDTRIP length 4096, flags 0", ioctl_result, EOPNOTSUPP);
         test_passed = false;
     }
 
