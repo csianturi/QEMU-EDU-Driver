@@ -4,8 +4,6 @@ A Linux kernel driver for QEMU's EDU educational PCI device, written in C with a
 
 The driver exposes `/dev/edu_lab0` for interrupt-driven factorial requests. It implements PCI binding, BAR0 MMIO, MSI interrupt handling, serialized hardware access, and bounded completion waits. DMA buffer management and request preparation are implemented; DMA transfers remain in progress.
 
-This project targets an **emulated PCI endpoint** inside an x86-64 Linux guest. It does not access a physical GPU or demonstrate physical PCIe link behavior.
-
 ## Features and status
 
 | Area | Current implementation |
@@ -253,18 +251,6 @@ Checked items distinguish implemented behavior and completed development tests f
 - [ ] Preserve at least one detailed debugging investigation.
 - [ ] Document credits and licenses for reused material.
 - [ ] Complete the core validation matrix and reproduce setup from a clean guest.
-
-## Limitations
-
-- This is an educational driver for a virtual PCI endpoint, not production hardware support.
-- DMA registers are prepared, but the driver does not issue a DMA start command or return a round-trip payload.
-- Removal currently assumes an idle device with all device files closed. Existing open files are not protected against PCI unbinding by a complete lifetime-management scheme.
-- Safe active-DMA teardown and DMA timeout recovery are unfinished. Do not use the current unconditional buffer cleanup as evidence that uncertain device activity is safely quiesced.
-- FAILED is persistent for the loaded device state. Reloading after the controlled suppression test is not a general recovery procedure for arbitrary hardware failure.
-- Initialization fault injection, late-event tests, and 32-bit compatibility have not been validated.
-- No physical PCIe bandwidth, link-training, or GPU-driver claims are made.
-
-Scatter/gather DMA, arbitrary userspace-page pinning, userspace MMIO, INTx fallback, and nonblocking/poll interfaces are outside the initial core scope.
 
 ## Development environment
 
