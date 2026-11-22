@@ -28,8 +28,12 @@
 
 
 #define EDU_IRQ_FACTORIAL 0x00000001
+#define EDU_IRQ_DMA 0x00000100
 #define EDU_STATUS_COMPUTING 0x01
 #define EDU_REG_STATUS_FACT_FINISH 0x80 
+#define EDU_DMA_DONE_INT 0x100
+#define EDU_DMA_BUFFER_ADDR 0x40000
+#define EDU_DMA_RUN_MASK 0x01
 
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEV_ID 0x11e8
@@ -39,10 +43,12 @@
 #define EDU_REG_ISR 0x24
 #define EDU_REG_IRQ_RAISE 0x60
 #define EDU_REG_IRQ_ACK 0x64
+#define EDU_REG_DMA_SRC 0x80
+#define EDU_REG_DMA_DEST 0x88
+#define EDU_REG_DMA_COUNT 0x90
+#define EDU_REG_DMA_CMD 0x98
 
 MODULE_LICENSE("GPL");
-
-static const size_t edu_buffer_capacity = 4096;
 
 static bool test_suppress_completion = false;
 module_param(test_suppress_completion, bool, 0444);
@@ -67,8 +73,9 @@ struct edu_device {
     struct completion op_done;
     int irq;
     enum EDU_state op_state; 
-    void *dma_cpu;
-    dma_addr_t dma_handle;
+    void *dma_cpu; // CPU virtual addr used by kernel
+    dma_addr_t dma_handle; // actual DMA addr used by DMA
+    struct completion dma_done;
 };
 
 static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
@@ -78,9 +85,11 @@ static irqreturn_t edu_irq_handler (int irq, void *dev_id) {
     pr_info("EDU interrupt status register: 0x%08x\n", ISR_read);
     if (ISR_read == 0) return IRQ_NONE;
 
+
     iowrite32(ISR_read, state->bar0 + EDU_REG_IRQ_ACK);
     
     if((ISR_read & EDU_IRQ_FACTORIAL) && !test_suppress_completion) complete(&state->op_done);
+    if((ISR_read & EDU_IRQ_DMA) && !test_suppress_completion) complete(&state->dma_done);
 
     return IRQ_HANDLED;
 }
@@ -160,7 +169,7 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
 
         // ack the old status so that old ISR does not interfere
         u32 ISR_status = ioread32(state->bar0 + EDU_REG_ISR);
-        iowrite32(ISR_status, state->bar0 + EDU_REG_IRQ_ACK);
+        iowrite32(ISR_status & EDU_IRQ_FACTORIAL, state->bar0 + EDU_REG_IRQ_ACK);
         ISR_status = ioread32(state->bar0 + EDU_REG_ISR);
 
         synchronize_irq(state->irq);
@@ -218,11 +227,43 @@ static long edu_ioctl (struct file *file, unsigned int cmd, unsigned long arg) {
             return -EFAULT;
         }
 
-        if(roundtrip_state->length < 1 || roundtrip_state->length > edu_buffer_capacity || roundtrip_state->flags != 0) {
+        if(roundtrip_state->length < 1 || roundtrip_state->length > DMA_MAX_PAYLOAD || roundtrip_state->flags != 0) {
             kfree(roundtrip_state);
             return -EINVAL;
         }
 
+        mutex_lock(&state->op_lock);
+        if(state->op_state != EDU_READY) {
+            mutex_unlock(&state->op_lock);
+            kfree(roundtrip_state);
+            return -EIO;
+        }
+
+        u64 DMA_cmd = readq(state->bar0 + EDU_REG_DMA_CMD);
+        if((DMA_cmd & EDU_DMA_RUN_MASK)) {
+            state->op_state = EDU_FAILED;
+            mutex_unlock(&state->op_lock);
+            kfree(roundtrip_state);
+            return -EIO;
+        }
+        
+        u32 ISR_status = ioread32(state->bar0 + EDU_REG_ISR);
+        iowrite32(ISR_status & EDU_IRQ_DMA, state->bar0 + EDU_REG_IRQ_ACK);
+        ISR_status = ioread32(state->bar0 + EDU_REG_ISR);
+
+        synchronize_irq(state->irq);
+        reinit_completion(&state->dma_done);
+
+        // copies the payload data into DMA buffer
+        memcpy(state->dma_cpu, roundtrip_state->payload, roundtrip_state->length);
+
+        // transfer host ram -> EDU
+        writeq(state->dma_handle, state->bar0 + EDU_REG_DMA_SRC);
+        writeq(EDU_DMA_BUFFER_ADDR, state->bar0 + EDU_REG_DMA_DEST);
+        writeq(roundtrip_state->length, state->bar0 + EDU_REG_DMA_COUNT);
+        
+
+        mutex_unlock(&state->op_lock);
         kfree(roundtrip_state);
         return -EOPNOTSUPP;
     }
@@ -278,7 +319,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     if (state == NULL) return -ENOMEM;
 
     init_completion(&state->op_done);
-
+    init_completion(&state->dma_done);
     mutex_init(&state->op_lock);
 
     // enables dev
@@ -301,7 +342,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         return dma_mask_result;
     }
 
-    state->dma_cpu = dma_alloc_coherent(&dev->dev, edu_buffer_capacity, &state->dma_handle, GFP_KERNEL);
+    state->dma_cpu = dma_alloc_coherent(&dev->dev, DMA_MAX_PAYLOAD, &state->dma_handle, GFP_KERNEL);
     if(state->dma_cpu == NULL) {
         pr_info("DMA allocation failed\n");
         pci_disable_device(dev);
@@ -314,7 +355,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     
     if(pci_region_result != 0) {
         pr_info("PCI BAR0 region request failed: %d\n", pci_region_result);
-        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+        dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return pci_region_result;
@@ -326,7 +367,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
     if(state->bar0 == NULL) {
         pr_info("PCI BAR0 mapping failed\n");
         pci_release_region(dev, 0);
-        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+        dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return -ENOMEM;
@@ -346,7 +387,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pr_info("Liveness check failed. Expected value: 0x%08x\n", ~write_val);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
-        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+        dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return -EIO;
@@ -359,7 +400,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pr_info("Vector allocation failed: %d\n", vec_alloc_result);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
-        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+        dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return vec_alloc_result;
@@ -373,7 +414,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pci_free_irq_vectors(dev);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
-        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+        dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return irq_state;
@@ -389,7 +430,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pci_set_drvdata(dev, NULL);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
-        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+        dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return irq_reg;
@@ -442,7 +483,7 @@ static int edu_probe(struct pci_dev *dev, const struct pci_device_id *id) {
         pci_set_drvdata(dev, NULL);
         pci_iounmap(dev, state->bar0);
         pci_release_region(dev, 0);
-        dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+        dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
         pci_disable_device(dev);
         kfree(state);
         return misc_result;
@@ -462,7 +503,7 @@ static void edu_remove(struct pci_dev *dev) {
     pci_set_drvdata(dev, NULL);
     pci_iounmap(dev, state->bar0);
     pci_release_region(dev, 0);
-    dma_free_coherent(&dev->dev, edu_buffer_capacity, state->dma_cpu, state->dma_handle);
+    dma_free_coherent(&dev->dev, DMA_MAX_PAYLOAD, state->dma_cpu, state->dma_handle);
     pci_disable_device(dev);
     kfree(state);
     return;
