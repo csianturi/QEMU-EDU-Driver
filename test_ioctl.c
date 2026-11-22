@@ -412,7 +412,7 @@ int main(){
     // -----------------------------------
 
     roundtrip_state.length = 1;
-    roundtrip_state.flags = 5;
+    roundtrip_state.flags = 0;
 
     ioctl_result = ioctl(f_open, EDU_IOCTL_ROUNDTRIP, &roundtrip_state);
 
